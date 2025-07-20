@@ -25,16 +25,7 @@ query_range:
 
 schema_config:
   configs:
-    # Keep old schema for existing data
-    - from: 2020-10-24
-      store: boltdb-shipper
-      object_store: filesystem
-      schema: v11
-      index:
-        prefix: index_
-        period: 24h
-    # New schema for Loki 3.x compatibility
-    - from: 2024-04-01
+    - from: 2020-01-01
       store: tsdb
       object_store: filesystem
       schema: v13
