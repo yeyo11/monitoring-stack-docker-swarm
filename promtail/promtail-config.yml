@@ -7,7 +7,6 @@ positions:
 
 clients:
   - url: http://loki:3100/loki/api/v1/push
-    # Enhanced configuration for Loki 3.x
     backoff_config:
       min_period: 500ms
       max_period: 5m
@@ -21,10 +20,6 @@ scrape_configs:
     docker_sd_configs:
       - host: unix:///var/run/docker.sock
         refresh_interval: 10s
-        filters:
-          # Optionally filter containers to scrape
-          - name: label
-            values: ['logging=enabled']
 
     relabel_configs:
       - source_labels: [__meta_docker_container_name]
@@ -39,29 +34,10 @@ scrape_configs:
         regex: '[^_]+_([^\.]+)\..*'
         target_label: service
 
-      - source_labels: [container_name]
-        regex: '(.*)'
-        target_label: task
-
-      - source_labels: [__meta_docker_container_id]
-        target_label: container_id
-
       - source_labels: [__meta_docker_container_label_com_docker_swarm_node_id]
         target_label: node_id
 
-      - source_labels: [__meta_docker_container_network_mode]
-        target_label: network_mode
-
-      - source_labels: [__meta_docker_container_log_stream]
-        target_label: stream
-
-      # Add hostname label
-      - replacement: '${HOSTNAME}'
-        target_label: hostname
-
-    # Enhanced pipeline stages for better log processing
     pipeline_stages:
-      # Parse JSON logs if present
       - json:
           expressions:
             level: level
@@ -69,16 +45,13 @@ scrape_configs:
             timestamp: timestamp
             service: service
 
-      # Extract log level from common patterns
       - regex:
           expression: '.*level=(?P<level>\w+).*'
 
-      # Add structured metadata for Loki 3.x (optional)
       - structured_metadata:
           level:
           service:
 
-      # Set timestamp if available
       - timestamp:
           source: timestamp
           format: RFC3339Nano
@@ -86,33 +59,6 @@ scrape_configs:
             - RFC3339
             - '2006-01-02T15:04:05.999999999Z07:00'
 
-      # Add labels based on log content
-      - labels:
-          level:
-          service:
-
-  # Additional scrape config for system logs (optional)
-  - job_name: system
-    static_configs:
-      - targets:
-          - localhost
-        labels:
-          job: system
-          __path__: /var/log/*.log
-
-    pipeline_stages:
-      - regex:
-          expression: '^(?P<timestamp>\S+\s+\S+\s+\S+)\s+(?P<hostname>\S+)\s+(?P<service>\S+).*'
-
-      - timestamp:
-          source: timestamp
-          format: 'Jan 02 15:04:05'
-
-      - labels:
-          hostname:
-          service:
-
-# Limits configuration for performance
 limits_config:
   readline_rate: 10000
   readline_burst: 20000
