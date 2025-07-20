@@ -29,8 +29,14 @@ scrape_configs:
       - source_labels: [__meta_docker_container_label_com_docker_swarm_stack_namespace]
         target_label: stack
 
-      - source_labels: [__meta_docker_container_label_com_docker_swarm_service_name]
+      - source_labels: [__meta_docker_container_label_com_docker_swarm_task_name]
+        regex: '([^\.]+)\..*'
         target_label: service_name
+
+      - source_labels: [__meta_docker_container_name]
+        regex: '/([^_]+).*'
+        target_label: service_name
+        action: replace_if_missing
 
       - source_labels: [__meta_docker_container_label_com_docker_swarm_task_name]
         target_label: task_name
