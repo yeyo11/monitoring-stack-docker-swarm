@@ -44,7 +44,7 @@ monitoring/
 
 ## Configuration & Environment Variables
 
-Sensitive information (such as credentials and tokens) is managed via environment variables. These must be set in the `docker-compose.yml` under the `environment:` section for each service that requires them.
+Sensitive information (such as credentials and tokens) is managed via environment variables. These must be set in the `monitoring.yml` under the `environment:` section for each service that requires them.
 
 ```
 environment:
