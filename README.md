@@ -19,7 +19,7 @@ This repository provides a complete monitoring solution for Docker Swarm environ
 monitoring/
 ├── .env.example
 ├── README.md
-├── docker-compose.yml
+├── monitoring.yml
 ├── alertmanager/
 │   ├── alertmanager.yml
 │   └── templates/
@@ -76,10 +76,10 @@ Copy `.env.example` to `.env` and fill in your values before deploying.
 
 ## Deployment
 
-1. Set all required environment variables in your `.env` file or directly in `docker-compose.yml`.
+1. Set all required environment variables in your `.env` file or directly in `monitoring.yml`.
 2. Deploy the stack with Docker Swarm:
    ```sh
-   docker stack deploy -c docker-compose.yml monitoring
+   docker stack deploy -c monitoring.yml monitoring
    ```
 3. Access Grafana via the exposed port or through the Cloudflared tunnel.
 
