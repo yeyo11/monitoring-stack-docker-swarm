@@ -17,12 +17,22 @@ This repository provides a complete monitoring solution for Docker Swarm environ
 
 ```
 monitoring/
+├── .env.example
+├── README.md
 ├── docker-compose.yml
 ├── alertmanager/
 │   ├── alertmanager.yml
 │   └── templates/
 │       └── telegram.tmpl
 ├── grafana/
+│   ├── dashboards/
+│   │   ├── container-metrics.json
+│   │   ├── loki-logs.json
+│   │   ├── node-exporter-full.json
+│   │   └── node-metrics.json
+│   └── provisioning/
+│       ├── dashboard.yml
+│       └── datasource.yml
 ├── loki/
 │   └── loki-config.yaml
 ├── prometheus/
@@ -67,9 +77,9 @@ Copy `.env.example` to `.env` and fill in your values before deploying.
 ## Deployment
 
 1. Set all required environment variables in your `.env` file or directly in `docker-compose.yml`.
-2. Run the stack:
+2. Deploy the stack with Docker Swarm:
    ```sh
-   docker compose up -d
+   docker stack deploy -c docker-compose.yml monitoring
    ```
 3. Access Grafana via the exposed port or through the Cloudflared tunnel.
 
