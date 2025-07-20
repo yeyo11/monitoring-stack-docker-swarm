@@ -1,0 +1,230 @@
+version: '3.8'
+
+services:
+  grafana:
+    image: grafana/grafana:9.5.2
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == manager
+          - node.labels.monitoring == true
+    volumes:
+      - type: volume
+        source: grafana-data
+        target: /var/lib/grafana
+      - type: bind
+        source: ${MONITORING_CONFIG_PATH}/grafana/provisioning/datasource.yml
+        target: /etc/grafana/provisioning/datasources/provisioning-datasources.yaml
+      - type: bind
+        source: ${MONITORING_CONFIG_PATH}/grafana/provisioning/dashboard.yml
+        target: /etc/grafana/provisioning/dashboards/provisioning-dashboards.yaml
+      - type: bind
+        source: ${MONITORING_CONFIG_PATH}/grafana/dashboards
+        target: /var/lib/grafana/dashboards
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+      - GF_USERS_ALLOW_SIGN_UP=${GRAFANA_ALLOW_SIGN_UP}
+    networks:
+      - net
+
+  prometheus:
+    image: prom/prometheus:main
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--log.level=error'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=7d'
+      - '--web.enable-lifecycle'
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == manager
+          - node.labels.monitoring == true
+    volumes:
+      - type: volume
+        source: prometheus-data
+        target: /prometheus
+      - type: bind
+        source: ${MONITORING_CONFIG_PATH}/prometheus/prometheus.yml
+        target: /etc/prometheus/prometheus.yml
+      - type: bind
+        source: ${MONITORING_CONFIG_PATH}/prometheus/alert-rules.yml
+        target: /etc/prometheus/alert-rules.yml
+    networks:
+      - net
+
+  alertmanager:
+    image: prom/alertmanager:v0.25.0
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-url=http://localhost:9093'
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == manager
+          - node.labels.monitoring == true
+    volumes:
+      - type: volume
+        source: alertmanager-data
+        target: /alertmanager
+      - type: bind
+        source: ${MONITORING_CONFIG_PATH}/alertmanager/alertmanager.yml
+        target: /etc/alertmanager/alertmanager.yml
+      - type: bind
+        source: ${MONITORING_CONFIG_PATH}/alertmanager/templates
+        target: /etc/alertmanager/templates
+    networks:
+      - net
+
+  loki:
+    image: grafana/loki:2.9.0
+    command: -config.file=/etc/loki/local-config.yaml
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == manager
+          - node.labels.monitoring == true
+    volumes:
+      - type: volume
+        source: loki-data
+        target: /loki
+      - type: bind
+        source: ${MONITORING_CONFIG_PATH}/loki/loki-config.yaml
+        target: /etc/loki/local-config.yaml
+    networks:
+      - net
+
+  promtail:
+    image: grafana/promtail:2.9.0
+    command: -config.file=/etc/promtail/config.yml
+    deploy:
+      mode: global
+      restart_policy:
+        condition: on-failure
+    volumes:
+      - type: bind
+        source: /var/log
+        target: /var/log
+        read_only: true
+      - type: bind
+        source: /var/lib/docker/containers
+        target: /var/lib/docker/containers
+        read_only: true
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+        read_only: true
+      - type: bind
+        source: ${MONITORING_CONFIG_PATH}/promtail/promtail-config.yml
+        target: /etc/promtail/config.yml
+    networks:
+      - net
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.2
+    command: -logtostderr -docker_only
+    deploy:
+      mode: global
+      resources:
+        limits:
+          memory: 2048M
+        reservations:
+          memory: 512M
+    volumes:
+      - type: bind
+        source: /
+        target: /rootfs
+        read_only: true
+      - type: bind
+        source: /var/run
+        target: /var/run
+        read_only: true
+      - type: bind
+        source: /sys
+        target: /sys
+        read_only: true
+      - type: bind
+        source: /var/lib/docker
+        target: /var/lib/docker
+        read_only: true
+      - type: bind
+        source: /dev/disk
+        target: /dev/disk
+        read_only: true
+      - type: bind
+        source: /dev/kmsg
+        target: /dev/kmsg
+        read_only: true
+    privileged: true
+    networks:
+      - net
+
+  node-exporter:
+    image: prom/node-exporter:v1.5.0
+    command:
+      - '--path.sysfs=/host/sys'
+      - '--path.procfs=/host/proc'
+      - '--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)'
+      - '--no-collector.ipvs'
+    deploy:
+      mode: global
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 64M
+    volumes:
+      - type: bind
+        source: /
+        target: /rootfs
+        read_only: true
+      - type: bind
+        source: /proc
+        target: /host/proc
+        read_only: true
+      - type: bind
+        source: /sys
+        target: /host/sys
+        read_only: true
+    networks:
+      - net
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: always
+    command: tunnel run -p http2
+    depends_on:
+      - grafana
+    networks:
+      - net
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+    deploy:
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: pause
+        order: start-first
+
+volumes:
+  grafana-data:
+  prometheus-data:
+  loki-data:
+  alertmanager-data:
+
+networks:
+  net:

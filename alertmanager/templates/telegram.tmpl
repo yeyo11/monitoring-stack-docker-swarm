@@ -1,0 +1,10 @@
+{{ define "telegram.default.message" }}
+{{ range .Alerts -}}
+🚨 <b>{{ .Labels.alertname }}</b> 🚨
+Severity: {{ .Labels.severity }}
+Summary: {{ .Annotations.summary }}
+Description: {{ .Annotations.description }}
+Source: {{ .GeneratorURL }}
+
+{{ end }}
+{{ end }}

@@ -1,0 +1,26 @@
+route:
+  group_by: ['alertname']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 1h
+  receiver: 'telegram'
+
+receivers:
+  - name: telegram
+    telegram_configs:
+      - send_resolved: true
+        api_url: https://api.telegram.org
+        bot_token:
+        chat_id:
+        message: '{{ template "telegram.default.message" . }}'
+        parse_mode: HTML
+
+templates:
+  - '/etc/alertmanager/templates/telegram.tmpl'
+
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'dev', 'instance']
