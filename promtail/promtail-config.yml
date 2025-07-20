@@ -26,16 +26,24 @@ scrape_configs:
         regex: '/(.*)'
         target_label: container_name
 
-      - source_labels: [container_name]
-        regex: '([^_]+)_.*'
+      - source_labels: [__meta_docker_container_label_com_docker_swarm_stack_namespace]
         target_label: stack
 
-      - source_labels: [container_name]
-        regex: '[^_]+_([^\.]+)\..*'
-        target_label: service
+      - source_labels: [__meta_docker_container_label_com_docker_swarm_service_name]
+        target_label: service_name
+
+      - source_labels: [__meta_docker_container_label_com_docker_swarm_task_name]
+        target_label: task_name
 
       - source_labels: [__meta_docker_container_label_com_docker_swarm_node_id]
         target_label: node_id
+
+      - source_labels: [__meta_docker_container_label_com_docker_swarm_task_slot]
+        target_label: replica
+
+      - source_labels: [__meta_docker_container_label_com_docker_swarm_service_name]
+        regex: '(.+)'
+        action: keep
 
     pipeline_stages:
       - json:
