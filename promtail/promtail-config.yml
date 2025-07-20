@@ -22,30 +22,33 @@ scrape_configs:
         refresh_interval: 10s
 
     relabel_configs:
-      - source_labels: [__meta_docker_container_label_com_docker_swarm_service_name]
-        target_label: service_name
-        action: replace
+      - source_labels: [__meta_docker_container_name]
+        regex: '/(.*)'
+        target_label: container_name
 
-      - source_labels: [__meta_docker_container_label_com_docker_compose_service]
-        target_label: service_name
-        action: replace
-
-      - source_labels: [__meta_docker_container_label_com_docker_stack_namespace]
+      - source_labels: [container_name]
+        regex: '([^_]+)_.*'
         target_label: stack
-        action: replace
 
-      - source_labels: [__meta_docker_container_label_com_docker_swarm_task_name]
-        regex: '([^\.]+)\..*'
-        target_label: task_name
-        action: replace
+      - source_labels: [container_name]
+        regex: '[^_]+_([^\.]+)\..*'
+        target_label: service
+
+      - source_labels: [container_name]
+        regex: '(.*)'
+        target_label: task
+
+      - source_labels: [__meta_docker_container_id]
+        target_label: container_id
 
       - source_labels: [__meta_docker_container_label_com_docker_swarm_node_id]
         target_label: node_id
-        action: replace
 
-      - source_labels: [__meta_docker_container_label_com_docker_swarm_task_slot]
-        target_label: replica
-        action: replace
+      - source_labels: [__meta_docker_container_network_mode]
+        target_label: network_mode
+
+      - source_labels: [__meta_docker_container_log_stream]
+        target_label: stream
 
     pipeline_stages:
       - json:
