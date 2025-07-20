@@ -51,7 +51,7 @@ scrape_configs:
 
       - labels:
           level:
-          service
+          service:
 
       - timestamp:
           source: timestamp
