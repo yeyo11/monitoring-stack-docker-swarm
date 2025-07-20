@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   grafana:
-    image: grafana/grafana:9.5.2
+    image: grafana/grafana:12.0.0
     deploy:
       replicas: 1
       restart_policy:
@@ -32,7 +32,7 @@ services:
       - net
 
   prometheus:
-    image: prom/prometheus:main
+    image: prom/prometheus:v3.4.1
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--log.level=error'
@@ -61,7 +61,7 @@ services:
       - net
 
   alertmanager:
-    image: prom/alertmanager:v0.25.0
+    image: prom/alertmanager:v0.28.1
     command:
       - '--config.file=/etc/alertmanager/alertmanager.yml'
       - '--storage.path=/alertmanager'
@@ -88,7 +88,7 @@ services:
       - net
 
   loki:
-    image: grafana/loki:2.9.0
+    image: grafana/loki:3.1.0
     command: -config.file=/etc/loki/local-config.yaml
     deploy:
       replicas: 1
@@ -109,7 +109,7 @@ services:
       - net
 
   promtail:
-    image: grafana/promtail:2.9.0
+    image: grafana/promtail:3.1.0
     command: -config.file=/etc/promtail/config.yml
     deploy:
       mode: global
@@ -135,7 +135,7 @@ services:
       - net
 
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.49.2
+    image: gcr.io/cadvisor/cadvisor:v0.50.0
     command: -logtostderr -docker_only
     deploy:
       mode: global
@@ -174,7 +174,7 @@ services:
       - net
 
   node-exporter:
-    image: prom/node-exporter:v1.5.0
+    image: prom/node-exporter:v1.9.1
     command:
       - '--path.sysfs=/host/sys'
       - '--path.procfs=/host/proc'

@@ -25,6 +25,7 @@ query_range:
 
 schema_config:
   configs:
+    # Keep old schema for existing data
     - from: 2020-10-24
       store: boltdb-shipper
       object_store: filesystem
@@ -32,6 +33,20 @@ schema_config:
       index:
         prefix: index_
         period: 24h
+    # New schema for Loki 3.x compatibility
+    - from: 2024-04-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: loki_index_
+        period: 24h
+
+limits_config:
+  allow_structured_metadata: true
+  max_cache_freshness_per_query: 10m
+  split_queries_by_interval: 15m
+  volume_enabled: true
 
 ruler:
   alertmanager_url: http://alertmanager:9093
@@ -40,3 +55,19 @@ ruler:
 
 analytics:
   reporting_enabled: false
+
+ingester:
+  lifecycler:
+    address: 127.0.0.1
+    ring:
+      kvstore:
+        store: inmemory
+      replication_factor: 1
+    final_sleep: 0s
+  chunk_idle_period: 5m
+  chunk_retain_period: 30s
+
+storage_config:
+  tsdb_shipper:
+    active_index_directory: /loki/tsdb-index
+    cache_location: /loki/tsdb-cache
