@@ -19,7 +19,7 @@ groups:
           severity: warning
         annotations:
           summary: "High CPU usage on {{ $labels.instance }}"
-          description: "CPU usage on {{ $labels.instance }} is at {{ $value }}% for more than 5 minutes."
+          description: "CPU usage on {{ $labels.instance }} is above {{ printf \"%.2f\" $value }}% for more than 5 minutes."
 
       # High memory usage
       - alert: HighMemoryUsage
@@ -29,11 +29,11 @@ groups:
           severity: warning
         annotations:
           summary: "High memory usage on {{ $labels.instance }}"
-          description: "Memory usage on {{ $labels.instance }} is at {{ $value }}% for more than 5 minutes."
+          description: "Memory usage on {{ $labels.instance }} is above {{ printf \"%.2f\" $value }}% for more than 5 minutes."
 
       # Low disk space
       - alert: LowDiskSpace
-        expr: node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"} * 100 < 10
+        expr: node_filesystem_avail_bytes{fstype!="tmpfs", mountpoint!~"/(boot|proc|sys|run)"} / node_filesystem_size_bytes{fstype!="tmpfs", mountpoint!~"/(boot|proc|sys|run)"} * 100 < 10
         for: 1m
         labels:
           severity: critical
@@ -49,14 +49,20 @@ groups:
           severity: warning
         annotations:
           summary: "Container restarting frequently"
-          description: "The container {{ $labels.name }} is restarting frequently."
+          description: |
+            The container {{ $labels.name }} from service {{ $labels.container_label_com_docker_swarm_service_name }}
+            (project {{ $labels.container_label_com_docker_stack_namespace }}) is restarting frequently.
 
       # High memory usage by container
       - alert: ContainerHighMemoryUsage
-        expr: (container_spec_memory_limit_bytes > 0) and (container_memory_usage_bytes / container_spec_memory_limit_bytes * 100 > 90)
+        expr: container_spec_memory_limit_bytes > 0
+              and (container_memory_usage_bytes / clamp_min(container_spec_memory_limit_bytes, 1) * 100 > 90)
         for: 5m
         labels:
           severity: warning
         annotations:
           summary: "High memory usage in container"
-          description: "The container {{ $labels.name }} is using {{ $value }}% of its memory limit."
+          description: |
+            The container {{ $labels.name }} from service {{ $labels.container_label_com_docker_swarm_service_name }}
+            (project {{ $labels.container_label_com_docker_stack_namespace }}) on {{ $labels.instance }}
+            is using {{ printf "%.2f" $value }}% of its memory limit.
