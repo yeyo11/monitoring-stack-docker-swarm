@@ -136,8 +136,6 @@ services:
 
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.50.0
-    cap_add:
-      - SYSLOG
     command:
       - '-logtostderr'
       - '-docker_only'
@@ -146,6 +144,8 @@ services:
       - '-disable_metrics=disk,diskIO,percpu,sched,tcp,udp,advtcp,process,hugetlb,referenced_memory,cpu_topology,resctrl'
     deploy:
       mode: global
+      restart_policy:
+        condition: on-failure
       resources:
         limits:
           memory: 2048M
@@ -164,18 +164,6 @@ services:
         source: /sys
         target: /sys
         read_only: true
-      - type: bind
-        source: /var/lib/docker
-        target: /var/lib/docker
-        read_only: true
-      - type: bind
-        source: /dev/disk
-        target: /dev/disk
-        read_only: true
-      - type: bind
-        source: /dev/kmsg
-        target: /dev/kmsg
-        read_only: true
     networks:
       - net
 
@@ -189,6 +177,8 @@ services:
       - '--no-collector.ipvs'
     deploy:
       mode: global
+      restart_policy:
+        condition: on-failure
       resources:
         limits:
           memory: 128M
@@ -199,6 +189,8 @@ services:
         source: /
         target: /rootfs
         read_only: true
+        bind:
+          propagation: rslave
       - type: bind
         source: /proc
         target: /host/proc
@@ -212,7 +204,6 @@ services:
 
   tunnel:
     image: cloudflare/cloudflared:latest
-    restart: always
     command: tunnel run -p http2
     depends_on:
       - grafana
@@ -221,6 +212,9 @@ services:
     environment:
       - TUNNEL_TOKEN=${TUNNEL_TOKEN}
     deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
       update_config:
         parallelism: 1
         delay: 10s
