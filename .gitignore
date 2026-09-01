@@ -1,1 +1,4 @@
+prometheus/targets/*.yml
+!prometheus/targets/*.yml.example
+
 .env

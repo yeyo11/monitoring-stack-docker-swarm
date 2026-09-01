@@ -33,3 +33,53 @@ scrape_configs:
   - job_name: 'alertmanager'
     static_configs:
       - targets: ['alertmanager:9093']
+
+  - job_name: 'blackbox-http'
+    metrics_path: /probe
+    scrape_interval: 60s
+    scrape_timeout: 15s
+    params:
+      module: [http_2xx]
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/targets/http-*.yml
+        refresh_interval: 1m
+    relabel_configs:
+      - source_labels: [module]
+        regex: (.+)
+        target_label: __param_module
+      - action: labeldrop
+        regex: module
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  - job_name: 'blackbox-tcp'
+    metrics_path: /probe
+    scrape_interval: 120s
+    scrape_timeout: 20s
+    params:
+      module: [tcp_connect]
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/targets/tcp-*.yml
+        refresh_interval: 1m
+    relabel_configs:
+      - source_labels: [module]
+        regex: (.+)
+        target_label: __param_module
+      - action: labeldrop
+        regex: module
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  - job_name: 'blackbox-exporter'
+    static_configs:
+      - targets: ['blackbox-exporter:9115']

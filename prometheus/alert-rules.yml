@@ -1,68 +1,471 @@
 groups:
-  - name: docker_swarm_alerts
+
+  - name: monitoring_self
+    interval: 30s
     rules:
-      # Service down
-      - alert: ServiceDown
+
+      - alert: TargetDown
         expr: up == 0
-        for: 30s
+        for: 3m
         labels:
           severity: critical
+          scope: monitoring
         annotations:
-          summary: "Service {{ $labels.job }} is down"
-          description: "The service {{ $labels.job }} on instance {{ $labels.instance }} has been down for more than 30 seconds."
+          summary: "Scrape target {{ $labels.job }} is down"
+          description: "Prometheus cannot scrape {{ $labels.job }} at {{ $labels.instance }} for more than 3 minutes."
 
-      # High CPU usage
-      - alert: HighCPUUsage
-        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+      - alert: ExporterMissing
+        expr: absent(up{job="node-exporter"}) or absent(up{job="cadvisor"})
+        for: 10m
+        labels:
+          severity: critical
+          scope: monitoring
+        annotations:
+          summary: "No targets for job {{ $labels.job }}"
+          description: "Service discovery returns no target for {{ $labels.job }}. Check the global service and tasks.* DNS resolution."
+
+      - alert: CadvisorNearMemoryLimit
+        expr: |
+          100 * container_memory_working_set_bytes{name=~".*cadvisor.*"}
+            / (container_spec_memory_limit_bytes{name=~".*cadvisor.*"} > 0 < 8e18)
+            > 80
+        for: 10m
+        labels:
+          severity: critical
+          scope: monitoring
+        annotations:
+          summary: "cAdvisor at {{ printf \"%.0f\" $value }}% of its 2GiB limit"
+          description: "If cAdvisor is OOM killed you lose all container visibility. Raise the limit or trim its metric set with --disable_metrics."
+
+      - alert: PrometheusConfigReloadFailed
+        expr: prometheus_config_last_reload_successful == 0
         for: 5m
         labels:
+          severity: critical
+          scope: monitoring
+        annotations:
+          summary: "Prometheus config reload failed"
+          description: "Prometheus is running with an outdated configuration."
+
+      - alert: PrometheusRuleEvaluationFailures
+        expr: increase(prometheus_rule_evaluation_failures_total[10m]) > 0
+        labels:
           severity: warning
+          scope: monitoring
+        annotations:
+          summary: "Prometheus rule evaluation failures"
+          description: "{{ printf \"%.0f\" $value }} evaluations failed in group {{ $labels.rule_group }}."
+
+      - alert: AlertmanagerNotificationsFailing
+        expr: increase(alertmanager_notifications_failed_total[15m]) > 0
+        labels:
+          severity: warning
+          scope: monitoring
+        annotations:
+          summary: "Alertmanager cannot deliver to {{ $labels.integration }}"
+          description: "Telegram delivery is failing; alerts are being lost silently."
+
+      - alert: AlertmanagerConfigReloadFailed
+        expr: alertmanager_config_last_reload_successful == 0
+        for: 5m
+        labels:
+          severity: critical
+          scope: monitoring
+        annotations:
+          summary: "Alertmanager config reload failed"
+          description: "Alertmanager is running with an outdated configuration."
+
+  - name: host_resources
+    interval: 30s
+    rules:
+
+      - alert: HostHighCPUUsage
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 15m
+        labels:
+          severity: warning
+          scope: host
         annotations:
           summary: "High CPU usage on {{ $labels.instance }}"
-          description: "CPU usage on {{ $labels.instance }} is above {{ printf \"%.2f\" $value }}% for more than 5 minutes."
+          description: "CPU at {{ printf \"%.1f\" $value }}% for 15 minutes. No container has a CPU limit, so one process can starve the rest."
 
-      # High memory usage
-      - alert: HighMemoryUsage
-        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 85
-        for: 5m
+      - alert: HostHighIOWait
+        expr: avg by(instance) (rate(node_cpu_seconds_total{mode="iowait"}[5m])) * 100 > 25
+        for: 15m
         labels:
           severity: warning
+          scope: host
         annotations:
-          summary: "High memory usage on {{ $labels.instance }}"
-          description: "Memory usage on {{ $labels.instance }} is above {{ printf \"%.2f\" $value }}% for more than 5 minutes."
+          summary: "High I/O wait on {{ $labels.instance }}"
+          description: "CPU waiting on disk {{ printf \"%.1f\" $value }}% of the time. Suspects: backup to CIFS, MariaDB, Loki compaction, clamd."
 
-      # Low disk space
-      - alert: LowDiskSpace
-        expr: node_filesystem_avail_bytes{fstype!="tmpfs", mountpoint!~"/(boot|proc|sys|run)"} / node_filesystem_size_bytes{fstype!="tmpfs", mountpoint!~"/(boot|proc|sys|run)"} * 100 < 10
+      - alert: HostHighLoadAverage
+        expr: node_load15 > 2 * count by(instance) (node_cpu_seconds_total{mode="idle"})
+        for: 15m
+        labels:
+          severity: warning
+          scope: host
+        annotations:
+          summary: "Load average above 2x core count"
+          description: "load15 = {{ printf \"%.2f\" $value }}."
+
+      - alert: HostHighMemoryUsage
+        expr: 100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 85
+        for: 15m
+        labels:
+          severity: warning
+          scope: host
+        annotations:
+          summary: "Memory usage at {{ printf \"%.1f\" $value }}%"
+          description: "Nothing limits container memory here; the OOM killer decides who dies. Investigate before it does."
+
+      - alert: HostCriticalMemoryUsage
+        expr: 100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 93
+        for: 5m
+        labels:
+          severity: critical
+          scope: host
+        annotations:
+          summary: "Memory usage critical: {{ printf \"%.1f\" $value }}%"
+          description: "An OOM kill is imminent and will hit whatever the kernel picks, most likely MariaDB or Moodle."
+
+      - alert: HostOOMKill
+        expr: increase(node_vmstat_oom_kill[10m]) > 0
+        labels:
+          severity: critical
+          scope: host
+        annotations:
+          summary: "OOM killer triggered on {{ $labels.instance }}"
+          description: "{{ printf \"%.0f\" $value }} process(es) killed. Run `dmesg -T | grep -i 'killed process'` to identify the victim."
+
+      - alert: HostSwapUsageHigh
+        expr: |
+          (100 * (1 - node_memory_SwapFree_bytes / node_memory_SwapTotal_bytes) > 70)
+          and (node_memory_SwapTotal_bytes > 0)
+        for: 30m
+        labels:
+          severity: warning
+          scope: host
+        annotations:
+          summary: "Swap {{ printf \"%.1f\" $value }}% full"
+          description: "Sustained swapping will make MariaDB and Dovecot crawl."
+
+  - name: host_storage
+    interval: 1m
+    rules:
+
+      - alert: DiskSpaceLow
+        expr: |
+          100 * node_filesystem_avail_bytes{fstype=~"ext4|xfs|btrfs"}
+            / node_filesystem_size_bytes{fstype=~"ext4|xfs|btrfs"} < 15
+        for: 10m
+        labels:
+          severity: warning
+          scope: storage
+        annotations:
+          summary: "Disk space low on {{ $labels.mountpoint }}"
+          description: "{{ $labels.mountpoint }} has {{ printf \"%.1f\" $value }}% free."
+
+      - alert: DiskSpaceCritical
+        expr: |
+          100 * node_filesystem_avail_bytes{fstype=~"ext4|xfs|btrfs"}
+            / node_filesystem_size_bytes{fstype=~"ext4|xfs|btrfs"} < 7
+        for: 5m
+        labels:
+          severity: critical
+          scope: storage
+        annotations:
+          summary: "Disk space critical on {{ $labels.mountpoint }}"
+          description: "{{ printf \"%.1f\" $value }}% free. With / full, Docker, MariaDB and mailcow all break at once."
+
+      - alert: DiskWillFillIn24h
+        expr: |
+          predict_linear(node_filesystem_avail_bytes{fstype=~"ext4|xfs|btrfs"}[6h], 24 * 3600) < 0
+          and
+          100 * node_filesystem_avail_bytes{fstype=~"ext4|xfs|btrfs"}
+            / node_filesystem_size_bytes{fstype=~"ext4|xfs|btrfs"} < 40
+        for: 30m
+        labels:
+          severity: warning
+          scope: storage
+        annotations:
+          summary: "{{ $labels.mountpoint }} will be full within 24h"
+          description: "Check for runaway logs, image bloat (`docker system df`) or a stuck backup."
+
+      - alert: DiskInodesLow
+        expr: |
+          100 * node_filesystem_files_free{fstype=~"ext4|xfs|btrfs"}
+            / node_filesystem_files{fstype=~"ext4|xfs|btrfs"} < 10
+        for: 10m
+        labels:
+          severity: critical
+          scope: storage
+        annotations:
+          summary: "Free inodes low on {{ $labels.mountpoint }}"
+          description: "{{ printf \"%.1f\" $value }}% inodes left. mailcow maildirs and Docker layers exhaust inodes before space."
+
+      - alert: FilesystemReadOnly
+        expr: node_filesystem_readonly{fstype=~"ext4|xfs|btrfs"} == 1
         for: 1m
         labels:
           severity: critical
+          scope: storage
         annotations:
-          summary: "Low disk space on {{ $labels.instance }}"
-          description: "Filesystem {{ $labels.mountpoint }} on {{ $labels.instance }} has less than 10% available space."
+          summary: "{{ $labels.mountpoint }} remounted read-only"
+          description: "Usually follows an I/O error. Check `dmesg` and the disk health."
 
-      # Container restarting frequently
-      - alert: ContainerHighRestartRate
-        expr: rate(container_start_time_seconds[10m]) > 0.1
+      - alert: FilesystemDeviceError
+        expr: node_filesystem_device_error == 1
+        for: 5m
+        labels:
+          severity: critical
+          scope: storage
+        annotations:
+          summary: "Cannot read filesystem {{ $labels.mountpoint }}"
+          description: "Likely the Hetzner Storage Box CIFS mount dropped. Backups are silently failing. Check `mount | grep cifs` and dmesg."
+
+      - alert: BackupStorageLow
+        expr: |
+          100 * node_filesystem_avail_bytes{fstype="cifs"}
+            / node_filesystem_size_bytes{fstype="cifs"} < 10
+        for: 30m
+        labels:
+          severity: warning
+          scope: storage
+        annotations:
+          summary: "Backup storage {{ $labels.mountpoint }} at {{ printf \"%.1f\" $value }}% free"
+          description: "Prune old backups on the Storage Box before it stops accepting writes."
+
+      - alert: DiskIOSaturated
+        expr: rate(node_disk_io_time_seconds_total{device!~"loop.*|dm-.*|sr.*"}[5m]) > 0.9
+        for: 20m
+        labels:
+          severity: warning
+          scope: storage
+        annotations:
+          summary: "Disk {{ $labels.device }} saturated"
+          description: "Device busy over 90% of the time for 20 minutes."
+
+  - name: host_system
+    interval: 1m
+    rules:
+
+      - alert: HostClockSkew
+        expr: abs(node_timex_offset_seconds) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          scope: host
+        annotations:
+          summary: "Clock drift of {{ printf \"%.3f\" $value }}s"
+          description: "Check `timedatectl status`. Mail signing and TOTP depend on this."
+
+      - alert: ConntrackTableNearLimit
+        expr: 100 * node_nf_conntrack_entries / node_nf_conntrack_entries_limit > 80
+        for: 10m
+        labels:
+          severity: warning
+          scope: host
+        annotations:
+          summary: "Conntrack table {{ printf \"%.0f\" $value }}% full"
+          description: "With ~95 containers, SMTP and 15+ tunnels this fills up. Raise net.netfilter.nf_conntrack_max."
+
+      - alert: HostNetworkInterfaceErrors
+        expr: |
+          rate(node_network_receive_errs_total{device!~"veth.*|docker.*|br-.*|lo|nsfs.*"}[5m])
+          + rate(node_network_transmit_errs_total{device!~"veth.*|docker.*|br-.*|lo|nsfs.*"}[5m]) > 1
+        for: 10m
+        labels:
+          severity: warning
+          scope: host
+        annotations:
+          summary: "Errors on interface {{ $labels.device }}"
+          description: "{{ printf \"%.2f\" $value }} errors/s."
+
+      - alert: HostRebooted
+        expr: time() - node_boot_time_seconds < 600
+        labels:
+          severity: info
+          scope: host
+        annotations:
+          summary: "{{ $labels.instance }} rebooted"
+          description: "Boot less than 10 minutes ago."
+
+  - name: containers
+    interval: 30s
+    rules:
+
+      - alert: ContainerOOMKilled
+        expr: increase(container_oom_events_total{name!=""}[15m]) > 0
+        labels:
+          severity: critical
+          scope: container
+        annotations:
+          summary: "Container {{ $labels.name }} was OOM killed"
+          description: |
+            {{ $labels.name }} (service {{ $labels.container_label_com_docker_swarm_service_name }})
+            hit a memory ceiling and was killed.
+
+      - alert: ContainerNearMemoryLimit
+        expr: |
+          100 * container_memory_working_set_bytes{name!=""}
+            / (container_spec_memory_limit_bytes{name!=""} > 0 < 8e18)
+            > 90
+        for: 10m
+        labels:
+          severity: warning
+          scope: container
+        annotations:
+          summary: "Container {{ $labels.name }} at {{ printf \"%.1f\" $value }}% of its limit"
+          description: "Only containers with an explicit limit are covered by this rule."
+
+      - alert: ContainerMemoryHogUnderPressure
+        expr: |
+          (container_memory_working_set_bytes{name!=""} > 3e9)
+          and on()
+          (100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 85)
+        for: 10m
+        labels:
+          severity: warning
+          scope: container
+        annotations:
+          summary: "{{ $labels.name }} using {{ $value | humanize1024 }}B while host memory is tight"
+          description: |
+            Host memory is above 85% and {{ $labels.name }}
+            (service {{ $labels.container_label_com_docker_swarm_service_name }}{{ $labels.container_label_com_docker_compose_service }})
+            is the likely cause. Consider setting a memory limit on it.
+
+      - alert: SwarmServiceRestartLoop
+        expr: |
+          count by (container_label_com_docker_swarm_service_name, container_label_com_docker_stack_namespace) (
+            count_over_time(
+              container_start_time_seconds{container_label_com_docker_swarm_service_name!=""}[30m]
+            )
+          ) > 3
         for: 5m
         labels:
           severity: warning
+          scope: container
         annotations:
-          summary: "Container restarting frequently"
+          summary: "Service {{ $labels.container_label_com_docker_swarm_service_name }} is restarting"
           description: |
-            The container {{ $labels.name }} from service {{ $labels.container_label_com_docker_swarm_service_name }}
-            (project {{ $labels.container_label_com_docker_stack_namespace }}) is restarting frequently.
+            {{ printf "%.0f" $value }} different containers spawned in 30 minutes for stack
+            {{ $labels.container_label_com_docker_stack_namespace }}.
+            Check: docker service ps --no-trunc {{ $labels.container_label_com_docker_swarm_service_name }}
 
-      # High memory usage by container
-      - alert: ContainerHighMemoryUsage
-        expr: container_spec_memory_limit_bytes > 0
-              and (container_memory_usage_bytes / clamp_min(container_spec_memory_limit_bytes, 1) * 100 > 90)
-        for: 5m
+      - alert: ComposeContainerRestartLoop
+        expr: |
+          changes(container_start_time_seconds{name!="", container_label_com_docker_swarm_service_name=""}[30m]) > 4
         labels:
           severity: warning
+          scope: container
         annotations:
-          summary: "High memory usage in container"
+          summary: "Container {{ $labels.name }} is restarting"
+          description: "{{ printf \"%.0f\" $value }} restarts in 30 minutes. If it is a mailcow container, check `docker logs {{ $labels.name }}` and the watchdog output."
+
+  - name: external_availability
+    interval: 30s
+    rules:
+
+      - alert: EndpointDown
+        expr: probe_success{job="blackbox-http"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          scope: edge
+        annotations:
+          summary: "{{ $labels.instance }} no responde"
+          description: "El stack {{ $labels.stack }} lleva 5 minutos fallando la sonda externa."
+
+      - alert: CloudflareTunnelDown
+        expr: probe_http_status_code{job="blackbox-http"} == 530
+        for: 3m
+        labels:
+          severity: critical
+          scope: edge
+        annotations:
+          summary: "Túnel de Cloudflare caído: {{ $labels.stack }}"
           description: |
-            The container {{ $labels.name }} from service {{ $labels.container_label_com_docker_swarm_service_name }}
-            (project {{ $labels.container_label_com_docker_stack_namespace }}) on {{ $labels.instance }}
-            is using {{ printf "%.2f" $value }}% of its memory limit.
+            Cloudflare devuelve 530 para {{ $labels.instance }}: el edge no tiene
+            conexión con tu cloudflared.
+            Revisar: docker service logs --tail 50 {{ $labels.stack }}_tunnel
+
+      - alert: EndpointServerError
+        expr: probe_http_status_code{job="blackbox-http"} >= 500 < 530
+        for: 5m
+        labels:
+          severity: critical
+          scope: edge
+        annotations:
+          summary: "{{ $labels.stack }} devuelve HTTP {{ printf \"%.0f\" $value }}"
+          description: "El túnel está bien pero la aplicación falla. Revisar nginx y la app del stack {{ $labels.stack }}."
+
+      - alert: EndpointSlow
+        expr: probe_duration_seconds{job="blackbox-http"} > 5
+        for: 15m
+        labels:
+          severity: warning
+          scope: edge
+        annotations:
+          summary: "{{ $labels.stack }} responde en {{ printf \"%.1f\" $value }}s"
+          description: "Lentitud sostenida. Cruzar con HostHighIOWait y con el MariaDB de ese stack."
+
+      - alert: BlackboxExporterDown
+        expr: up{job="blackbox-exporter"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          scope: monitoring
+        annotations:
+          summary: "blackbox-exporter caído"
+          description: "La monitorización de disponibilidad externa está ciega."
+
+
+  - name: mail_availability
+    interval: 30s
+    rules:
+
+      - alert: MailServiceDown
+        expr: probe_success{job="blackbox-tcp"} == 0
+        for: 10m
+        labels:
+          severity: critical
+          scope: mail
+        annotations:
+          summary: "mailcow {{ $labels.service }} no responde en {{ $labels.instance }}"
+          description: |
+            La sonda de {{ $labels.service }} lleva 10 minutos fallando. El correo
+            entrante o saliente está afectado. Revisar postfix/dovecot en mailcow
+            y que el puerto no esté bloqueado aguas arriba.
+
+      - alert: SMTPDialogueBroken
+        expr: |
+          probe_success{job="blackbox-tcp"} == 1
+          and probe_failed_due_to_regex{job="blackbox-tcp"} == 1
+        for: 10m
+        labels:
+          severity: warning
+          scope: mail
+        annotations:
+          summary: "Diálogo SMTP/IMAP inesperado en {{ $labels.service }}"
+          description: "El puerto responde pero la conversación esperada falla. Posible problema de certificado o de configuración de postfix/dovecot."
+
+      - alert: MailTLSCertExpiringSoon
+        expr: (probe_ssl_earliest_cert_expiry{stack="mailcow"} - time()) / 86400 < 15
+        for: 1h
+        labels:
+          severity: warning
+          scope: mail
+        annotations:
+          summary: "Certificado de {{ $labels.instance }} caduca en {{ printf \"%.0f\" $value }} días"
+          description: "La renovación se ha atascado. Revisar los logs del contenedor acme-mailcow."
+
+      - alert: MailTLSCertExpiringCritical
+        expr: (probe_ssl_earliest_cert_expiry{stack="mailcow"} - time()) / 86400 < 5
+        for: 30m
+        labels:
+          severity: critical
+          scope: mail
+        annotations:
+          summary: "Certificado de {{ $labels.instance }} caduca en {{ printf \"%.0f\" $value }} días"
+          description: "Renovar ya o los clientes de correo empezarán a rechazar la conexión."

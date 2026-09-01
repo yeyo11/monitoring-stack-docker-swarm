@@ -1,0 +1,98 @@
+# ============================================================================
+#  blackbox.yml — módulos de sondeo
+#
+#  Este fichero NO contiene dominios: es genérico y puede ir al repo público.
+#  El inventario de qué se sondea vive en prometheus/targets/, que está
+#  en .gitignore.
+# ============================================================================
+
+modules:
+
+  # ── Webs públicas: deben devolver 2xx ─────────────────────────────────
+  # El timeout debe ser MENOR que el scrape_timeout del job, o el probe se
+  # corta antes de terminar y siempre da fallo.
+  http_2xx:
+    prober: http
+    timeout: 10s
+    http:
+      method: GET
+      valid_http_versions: [HTTP/1.1, HTTP/2.0]
+      valid_status_codes: []          # vacío = solo 2xx
+      follow_redirects: true
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
+      headers:
+        User-Agent: "blackbox-exporter/monitoring"
+      # Cuando el túnel cae, Cloudflare devuelve 530 con "Error 1033".
+      # El 530 ya falla solo; esto cubre una página de error servida con 200.
+      fail_if_body_matches_regexp:
+        - "Error 1033"
+        - "Argo Tunnel error"
+
+  # ── Paneles con login o Cloudflare Access ─────────────────────────────
+  # Un 302 al login o un 403 de Access significan "vivo". Aquí solo
+  # queremos cazar 5xx, 530 y timeouts.
+  http_2xx_or_auth:
+    prober: http
+    timeout: 10s
+    http:
+      method: GET
+      valid_status_codes: [200, 204, 301, 302, 401, 403]
+      follow_redirects: false
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
+      headers:
+        User-Agent: "blackbox-exporter/monitoring"
+
+  # ── SMTP entrante con STARTTLS (25) ───────────────────────────────────
+  smtp_starttls:
+    prober: tcp
+    timeout: 15s
+    tcp:
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
+      query_response:
+        - expect: "^220 "
+        - send: "EHLO blackbox.monitoring"
+        - expect: "^250-STARTTLS"
+        - send: "STARTTLS"
+        - expect: "^220"
+        - starttls: true
+        - send: "EHLO blackbox.monitoring"
+        - expect: "^250-"
+        - send: "QUIT"
+
+  # ── Submission (587) ──────────────────────────────────────────────────
+  submission_starttls:
+    prober: tcp
+    timeout: 15s
+    tcp:
+      preferred_ip_protocol: ip4
+      query_response:
+        - expect: "^220 "
+        - send: "EHLO blackbox.monitoring"
+        - expect: "^250-STARTTLS"
+        - send: "STARTTLS"
+        - expect: "^220"
+        - starttls: true
+        - send: "EHLO blackbox.monitoring"
+        - expect: "^250-"
+        - send: "QUIT"
+
+  # ── IMAPS (993), TLS directo ──────────────────────────────────────────
+  imaps_banner:
+    prober: tcp
+    timeout: 10s
+    tcp:
+      tls: true
+      preferred_ip_protocol: ip4
+      query_response:
+        - expect: "^\\* OK"
+        - send: "a1 LOGOUT"
+
+  # ── Puerto TCP genérico ───────────────────────────────────────────────
+  tcp_connect:
+    prober: tcp
+    timeout: 10s
+    tcp:
+      preferred_ip_protocol: ip4

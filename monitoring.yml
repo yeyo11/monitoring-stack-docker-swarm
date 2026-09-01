@@ -57,6 +57,10 @@ services:
       - type: bind
         source: ${MONITORING_CONFIG_PATH}/prometheus/alert-rules.yml
         target: /etc/prometheus/alert-rules.yml
+      - type: bind
+        source: ${MONITORING_CONFIG_PATH}/prometheus/targets
+        target: /etc/prometheus/targets
+        read_only: true
     networks:
       - net
 
@@ -220,6 +224,28 @@ services:
         delay: 10s
         failure_action: pause
         order: start-first
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.27.0
+    command:
+      - '--config.file=/etc/blackbox_exporter/config.yml'
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == manager
+          - node.labels.monitoring == true
+      resources:
+        limits:
+          memory: 128M
+    volumes:
+      - type: bind
+        source: ${MONITORING_CONFIG_PATH}/blackbox/blackbox.yml
+        target: /etc/blackbox_exporter/config.yml
+    networks:
+      - net
 
 volumes:
   grafana-data:
