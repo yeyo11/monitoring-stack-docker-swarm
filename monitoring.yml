@@ -143,8 +143,7 @@ services:
       - '-docker_only'
       - '-store_container_labels=false'
       - '-whitelisted_container_labels=com.docker.swarm.service.name,com.docker.stack.namespace,com.docker.compose.project,com.docker.compose.service'
-      - '-disable_metrics=percpu,sched,tcp,udp,advtcp,process,hugetlb,referenced_memory,cpu_topology,resctrl'
-      - '-housekeeping_interval=15s'
+      - '-disable_metrics=disk,diskIO,percpu,sched,tcp,udp,advtcp,process,hugetlb,referenced_memory,cpu_topology,resctrl'
     deploy:
       mode: global
       resources:
